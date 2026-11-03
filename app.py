@@ -174,50 +174,6 @@ Question: {question}
     return response.text
 
 
-def generate_itinerary(config: dict, trip: dict, sources: List[str]) -> str:
-    context = "\n\n--- SOURCE ---\n\n".join(sources)
-    prompt = f"""You are TravelTruth AI, a careful Japan trip planner.
-Create a practical, realistic itinerary using only the supplied context for travel
-facts. Do not invent current visa, prices, opening hours, or transport schedules.
-Clearly label assumptions and tell the traveler what must be verified officially.
-
-Traveler preferences:
-{json.dumps(trip, indent=2)}
-
-Knowledge-base context:
-{context}
-
-Return the plan with these sections:
-1. Trip snapshot
-2. Day-by-day itinerary with morning, afternoon, and evening
-3. Transport approach
-4. Accommodation area suggestions (not made-up hotels)
-5. Food and culture ideas
-6. Packing and preparation checklist
-7. Safety and official verification reminders
-
-Keep it useful and concise. Avoid cramming too many activities into one day.
-"""
-    if config["provider"] == "ollama":
-        response = ollama_request(
-            config["base_url"],
-            "/api/chat",
-            {
-                "model": config["generation_model"],
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "options": {"temperature": 0.3},
-            },
-        )
-        return response["message"]["content"]
-
-    response = config["client"].models.generate_content(
-        model=config["generation_model"],
-        contents=prompt,
-    )
-    return response.text
-
-
 @st.cache_resource(show_spinner=False)
 def prepare_knowledge_base(config_key: tuple, uploaded_contents: tuple[str, ...]):
     provider, base_url, embedding_model, generation_model, api_key = config_key
@@ -500,11 +456,6 @@ def main() -> None:
                             st.write(source)
                 except (RuntimeError, KeyError, ValueError) as error:
                     st.error(f"We could not create the plan: {error}")
-
-    st.warning(
-        "Demo only: verify visa, health, safety, and entry information with official "
-        "Japanese government or embassy sources before traveling."
-    )
 
 
 if __name__ == "__main__":
