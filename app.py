@@ -315,3 +315,177 @@ def main() -> None:
         generation_model,
         api_key,
     )
+with st.spinner("Preparing the travel knowledge base..."):
+        config, chunks, index = prepare_knowledge_base(config_key, uploaded_contents)
+
+    overview, ask_tab, plan, planner_tab = st.tabs(
+        ["🌸 Japan overview", "💬 Ask TravelTruth", "🧳 Checklist", "🗺️ Trip planner"]
+    )
+
+    with overview:
+        st.subheader("Start with the essentials")
+        facts = [
+            ("Best for", "City breaks, food, culture, temples, and efficient public transport"),
+            ("Popular route", "Tokyo → Kyoto → Osaka for a balanced first visit"),
+            ("Remember", "Visa rules, weather, transport schedules, and entry requirements change"),
+        ]
+        fact_columns = st.columns(3)
+        for column, (title, text) in zip(fact_columns, facts):
+            with column:
+                st.markdown(
+                    f'<div class="fact"><strong>{title}</strong><br>'
+                    f'<span class="muted">{text}</span></div>',
+                    unsafe_allow_html=True,
+                )
+        st.markdown("#### Useful questions to ask")
+        question_examples = [
+            "What should I pack for Japan in autumn?",
+            "How should I plan transport between Tokyo and Kyoto?",
+            "What etiquette should I know before visiting a temple?",
+        ]
+        for example in question_examples:
+            st.markdown(f"- {example}")
+
+    with ask_tab:
+        left, right = st.columns([1.5, 1])
+        with left:
+            st.subheader("What do you want to verify?")
+            category = st.selectbox(
+                "Question category",
+                ["Myth or fact", "Visa and entry", "Culture and etiquette", "Transport", "Safety", "Planning and packing"],
+                label_visibility="collapsed",
+            )
+            examples = {
+                "Myth or fact": "Is tipping required in Japan?",
+                "Visa and entry": "What should I check before applying for a visa?",
+                "Culture and etiquette": "What etiquette should I know at a temple?",
+                "Transport": "How should I travel between Tokyo and Kyoto?",
+                "Safety": "What should I verify before traveling?",
+                "Planning and packing": "What should I pack for a seven-day Japan trip?",
+            }
+            st.caption(f"Try: {examples[category]}")
+            question = st.text_input(
+                "Your question",
+                placeholder=examples[category],
+                key="question",
+            )
+            ask = st.button("🔎 Check with TravelTruth", type="primary", use_container_width=True)
+        with right:
+            st.markdown(
+                '<div class="card"><strong>Reliable answers, step by step</strong><br><br>'
+                '<span class="muted">1. Add trusted travel documents<br>'
+                "2. Ask in your own words<br>"
+                "3. Review the answer and source excerpts<br>"
+                "4. Verify time-sensitive advice officially</span></div>",
+                unsafe_allow_html=True,
+            )
+        if ask and not question.strip():
+            st.warning("Please enter a travel question first.")
+            return
+        if ask:
+            try:
+                with st.spinner("Checking your travel documents..."):
+                    sources = retrieve(config, index, chunks, question, retrieval_depth)
+                    answer = generate_answer(config, question, sources)
+                st.subheader("TravelTruth result")
+                st.info(answer)
+                with st.expander(f"📚 View {len(sources)} retrieved source excerpts"):
+                    for number, source in enumerate(sources, start=1):
+                        st.markdown(f"**Source {number}**")
+                        st.write(source)
+            except (RuntimeError, KeyError, ValueError) as error:
+                st.error(f"We could not complete that check: {error}")
+
+    with plan:
+        st.subheader("Japan pre-trip checklist")
+        checklist = [
+            "Verify passport, visa, and entry requirements",
+            "Save accommodation addresses in English and Japanese",
+            "Arrange connectivity and download offline maps",
+            "Check transport routes, reservations, and luggage rules",
+            "Pack for the season and bring comfortable walking shoes",
+            "Save insurance, medicine, and emergency information",
+        ]
+        for item in checklist:
+            st.checkbox(item, key=f"check_{item}")
+
+    with planner_tab:
+        st.subheader("Build your Japan trip")
+        st.caption(
+            "Answer a few questions and TravelTruth will create a personalized "
+            "day-by-day plan grounded in your travel documents."
+        )
+        with st.form("trip_planner_form"):
+            destination = st.multiselect(
+                "Where would you like to go?",
+                ["Tokyo", "Kyoto", "Osaka", "Nara", "Hokkaido", "Okinawa"],
+                default=["Tokyo", "Kyoto", "Osaka"],
+            )
+            duration = st.slider("How many days?", min_value=3, max_value=21, value=7)
+            travel_month = st.selectbox(
+                "When are you traveling?",
+                ["Not decided", "Spring", "Summer", "Autumn", "Winter"],
+            )
+            traveler_type = st.selectbox(
+                "Who are you traveling with?",
+                ["Solo", "Couple", "Family with children", "Friends", "Senior-friendly trip"],
+            )
+            interests = st.multiselect(
+                "What do you enjoy?",
+                ["Food", "Culture and temples", "Nature", "Shopping", "Anime and games",
+                 "History", "Nightlife", "Photography"],
+                default=["Food", "Culture and temples"],
+            )
+            pace = st.select_slider(
+                "Preferred pace",
+                options=["Relaxed", "Balanced", "Packed"],
+                value="Balanced",
+            )
+            budget = st.selectbox(
+                "Budget preference",
+                ["Value-conscious", "Comfortable", "Premium"],
+            )
+            accessibility = st.text_input(
+                "Special needs or constraints",
+                placeholder="Example: vegetarian food, limited walking, allergy",
+            )
+            planner_submitted = st.form_submit_button(
+                "✨ Create my travel plan",
+                type="primary",
+                use_container_width=True,
+            )
+        if planner_submitted:
+            if not destination:
+                st.warning("Choose at least one destination.")
+            else:
+                trip = {
+                    "destinations": destination,
+                    "duration_days": duration,
+                    "travel_season": travel_month,
+                    "travel_group": traveler_type,
+                    "interests": interests,
+                    "pace": pace,
+                    "budget_preference": budget,
+                    "special_needs": accessibility or "None provided",
+                }
+                planning_query = (
+                    "Create Japan trip planning guidance for "
+                    f"{duration} days in {', '.join(destination)}. "
+                    f"Focus on {', '.join(interests)} and {pace.lower()} pacing."
+                )
+                try:
+                    with st.spinner("Designing your trip from the source documents..."):
+                        planner_sources = retrieve(config, index, chunks, planning_query, retrieval_depth)
+                        itinerary = generate_itinerary(config, trip, planner_sources)
+                    st.success("Your personalized plan is ready.")
+                    st.markdown(itinerary)
+                    with st.expander("📚 View planning sources"):
+                        for number, source in enumerate(planner_sources, start=1):
+                            st.markdown(f"**Source {number}**")
+                            st.write(source)
+                except (RuntimeError, KeyError, ValueError) as error:
+                    st.error(f"We could not create the plan: {error}")
+
+
+if __name__ == "__main__":
+    main()
