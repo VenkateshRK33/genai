@@ -174,6 +174,49 @@ Question: {question}
     return response.text
 
 
+def generate_itinerary(config: dict, trip: dict, sources: List[str]) -> str:
+    context = "\n\n--- SOURCE ---\n\n".join(sources)
+    prompt = f"""You are TravelTruth AI, a careful Japan trip planner.
+Create a practical, realistic itinerary using only the supplied context for travel
+facts. Do not invent current visa, prices, opening hours, or transport schedules.
+Clearly label assumptions and tell the traveler what must be verified officially.
+
+Traveler preferences:
+{json.dumps(trip, indent=2)}
+
+Knowledge-base context:
+{context}
+
+Return the plan with these sections:
+1. Trip snapshot
+2. Day-by-day itinerary with morning, afternoon, and evening
+3. Transport approach
+4. Accommodation area suggestions (not made-up hotels)
+5. Food and culture ideas
+6. Packing and preparation checklist
+7. Safety and official verification reminders
+Keep it useful and concise. Avoid cramming too many activities into one day.
+"""
+    if config["provider"] == "ollama":
+        response = ollama_request(
+            config["base_url"],
+            "/api/chat",
+            {
+                "model": config["generation_model"],
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "options": {"temperature": 0.3},
+            },
+        )
+        return response["message"]["content"]
+
+    response = config["client"].models.generate_content(
+        model=config["generation_model"],
+        contents=prompt,
+    )
+    return response.text
+
+
 @st.cache_resource(show_spinner=False)
 def prepare_knowledge_base(config_key: tuple, uploaded_contents: tuple[str, ...]):
     provider, base_url, embedding_model, generation_model, api_key = config_key
@@ -185,6 +228,7 @@ def prepare_knowledge_base(config_key: tuple, uploaded_contents: tuple[str, ...]
     }
     if provider == "gemini":
         from google import genai
+
         config["client"] = genai.Client(api_key=api_key)
     text = DATA_PATH.read_text(encoding="utf-8")
     text += "\n\n" + "\n\n".join(uploaded_contents)
@@ -199,7 +243,6 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
-
     st.markdown(
         """
         <style>
@@ -217,7 +260,6 @@ def main() -> None:
         """,
         unsafe_allow_html=True,
     )
-
     st.markdown(
         '<div class="hero"><h1>✈️ TravelTruth AI</h1>'
         "<p>Ask smarter questions. Get answers grounded in your Japan travel documents.</p>"
@@ -228,9 +270,7 @@ def main() -> None:
     with st.sidebar:
         st.header("Travel setup")
         st.caption("Your local-first RAG assistant")
-
     provider = st.sidebar.selectbox("AI provider", ["Ollama (local)", "Gemini (cloud)"])
-
     if provider.startswith("Ollama"):
         base_url = st.sidebar.text_input(
             "Ollama URL", value=os.getenv("OLLAMA_URL", OLLAMA_URL)
@@ -257,19 +297,10 @@ def main() -> None:
         embedding_model = "gemini-embedding-001"
         generation_model = "gemini-2.0-flash"
         provider_name = "gemini"
-
     uploaded_files = st.sidebar.file_uploader(
         "Add your travel documents (.txt or .pdf)",
         type=["txt", "pdf"],
         accept_multiple_files=True,
-    )
-
-    retrieval_depth = st.sidebar.slider(
-        "Source passages to retrieve",
-        min_value=1,
-        max_value=10,
-        value=4,
-        help="How many document passages TravelTruth should read before answering.",
     )
 
     if provider_name == "gemini" and not api_key:
@@ -277,18 +308,10 @@ def main() -> None:
         return
 
     uploaded_contents = tuple(read_uploaded_file(file) for file in uploaded_files)
-
     config_key = (
         provider_name,
         base_url,
         embedding_model,
         generation_model,
         api_key,
-    )
-
-    with st.spinner("Preparing the travel knowledge base..."):
-        config, chunks, index = prepare_knowledge_base(config_key, uploaded_contents)
-
-    overview, ask_tab, plan, planner_tab = st.tabs(
-        ["🌸 Japan overview", "💬 Ask TravelTruth", "🧳 Checklist", "🗺️ Trip planner"]
     )
